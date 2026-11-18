@@ -1,0 +1,216 @@
+
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#1e3a8a">
+<title>Manutenzione Auto</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: system-ui, -apple-system, sans-serif;
+    background: #f1f5f9;
+    color: #0f172a;
+    padding: 12px;
+    max-width: 600px;
+    margin: 0 auto;
+  }
+  h1 { font-size: 1.3rem; text-align: center; margin-bottom: 14px; color: #1e3a8a; }
+  .card {
+    background: #fff;
+    border-radius: 12px;
+    padding: 14px;
+    margin-bottom: 10px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    cursor: pointer;
+  }
+  .card-header { display: flex; justify-content: space-between; align-items: center; }
+  .card-title { font-weight: 600; font-size: 1rem; }
+  .badge {
+    font-size: 0.7rem; background: #dbeafe; color: #1e3a8a;
+    padding: 2px 8px; border-radius: 999px;
+  }
+  .last-info { font-size: 0.8rem; color: #64748b; margin-top: 6px; }
+  .history { display: none; margin-top: 10px; border-top: 1px solid #e2e8f0; padding-top: 8px; }
+  .history.open { display: block; }
+  .entry {
+    font-size: 0.82rem; padding: 6px 0;
+    border-bottom: 1px dashed #e2e8f0;
+    display: flex; justify-content: space-between; gap: 8px;
+  }
+  .entry:last-child { border-bottom: none; }
+  .entry .del { color: #dc2626; cursor: pointer; font-weight: bold; padding: 0 4px; }
+  .btn {
+    background: #1e3a8a; color: #fff; border: none;
+    padding: 8px 12px; border-radius: 8px; font-size: 0.85rem;
+    cursor: pointer; margin-top: 8px; width: 100%;
+  }
+  .btn.secondary { background: #475569; }
+  .modal-bg {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.5);
+    align-items: center; justify-content: center;
+    padding: 16px; z-index: 10;
+  }
+  .modal-bg.open { display: flex; }
+  .modal {
+    background: #fff; border-radius: 14px; padding: 18px;
+    width: 100%; max-width: 400px;
+  }
+  .modal h2 { font-size: 1.05rem; margin-bottom: 12px; color: #1e3a8a; }
+  .modal label { font-size: 0.8rem; color: #475569; display: block; margin-top: 10px; }
+  .modal input, .modal textarea {
+    width: 100%; padding: 8px; border: 1px solid #cbd5e1;
+    border-radius: 8px; font-size: 0.9rem; margin-top: 4px; font-family: inherit;
+  }
+  .modal .row { display: flex; gap: 8px; margin-top: 14px; }
+  .modal .row button { flex: 1; }
+  .toolbar { display: flex; gap: 8px; margin-bottom: 12px; }
+  .toolbar button { flex: 1; }
+  .backup { font-size: 0.72rem; color: #64748b; text-align: center; margin-top: 16px; }
+</style>
+</head>
+<body>
+
+<h1>🚗 Manutenzione Auto</h1>
+
+<div class="toolbar">
+  <button class="btn secondary" onclick="exportData()">💾 Esporta</button>
+  <button class="btn secondary" onclick="document.getElementById('importFile').click()">📥 Importa</button>
+  <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)">
+</div>
+
+<div id="list"></div>
+
+<div class="modal-bg" id="modal">
+  <div class="modal">
+    <h2 id="modal-title">Nuovo intervento</h2>
+    <label>Data</label>
+    <input type="date" id="in-data">
+    <label>Km attuali</label>
+    <input type="number" id="in-km" placeholder="es. 120000">
+    <label>Note (marca olio, tipo gomme, ecc.)</label>
+    <textarea id="in-note" rows="2" placeholder="opzionale"></textarea>
+    <div class="row">
+      <button class="btn secondary" onclick="closeModal()">Annulla</button>
+      <button class="btn" onclick="saveEntry()">Salva</button>
+    </div>
+  </div>
+</div>
+
+<div class="backup">Dati salvati sul telefono · esporta per backup</div>
+
+<script>
+const TASKS = [
+  "Verifica compressione",
+  "Cambio gomme",
+  "Olio motore e filtro",
+  "Additivo olio gommini valvole",
+  "Additivo pulizia iniettori",
+  "Additivo pulizia morchie",
+  "Cambio freni davanti",
+  "Cambio freni dietro",
+  "Filtro aria",
+  "Filtro abitacolo"
+];
+
+let data = JSON.parse(localStorage.getItem("autoMaint") || "{}");
+let currentTask = null;
+
+function saveData() { localStorage.setItem("autoMaint", JSON.stringify(data)); }
+function fmtDate(d) { const [y,m,gg] = d.split("-"); return `${gg}/${m}/${y}`; }
+
+function render() {
+  const list = document.getElementById("list");
+  list.innerHTML = "";
+  TASKS.forEach((task, ti) => {
+    const entries = (data[task] || []).slice().sort((a,b) => b.data.localeCompare(a.data));
+    const last = entries[0];
+    const card = document.createElement("div");
+    card.className = "card";
+
+    let lastInfo = "Nessun intervento registrato";
+    if (last) {
+      const giorni = Math.floor((Date.now() - new Date(last.data)) / 86400000);
+      lastInfo = `Ultimo: ${fmtDate(last.data)} · ${last.km} km · ${giorni} gg fa`;
+    }
+
+    card.innerHTML = `
+      <div class="card-header">
+        <span class="card-title">${task}</span>
+        <span class="badge">${entries.length}</span>
+      </div>
+      <div class="last-info">${lastInfo}</div>
+      <div class="history" id="hist-${ti}">
+        ${entries.map((e, i) => `
+          <div class="entry">
+            <span>${fmtDate(e.data)} · ${e.km} km${e.note ? " · " + e.note : ""}</span>
+            <span class="del" onclick="delEntry('${task}', ${i}); event.stopPropagation();">✕</span>
+          </div>
+        `).join("") || "<div class='entry'>Vuoto</div>"}
+        <button class="btn" onclick="event.stopPropagation(); openModal('${task}')">+ Aggiungi</button>
+      </div>
+    `;
+
+    card.onclick = () => card.querySelector(".history").classList.toggle("open");
+    list.appendChild(card);
+  });
+}
+
+function openModal(task) {
+  currentTask = task;
+  document.getElementById("modal-title").textContent = task;
+  document.getElementById("in-data").value = new Date().toISOString().slice(0,10);
+  document.getElementById("in-km").value = "";
+  document.getElementById("in-note").value = "";
+  document.getElementById("modal").classList.add("open");
+}
+
+function closeModal() { document.getElementById("modal").classList.remove("open"); }
+
+function saveEntry() {
+  const dataVal = document.getElementById("in-data").value;
+  const km = document.getElementById("in-km").value;
+  const note = document.getElementById("in-note").value.trim();
+  if (!dataVal || !km) { alert("Inserisci data e km"); return; }
+  if (!data[currentTask]) data[currentTask] = [];
+  data[currentTask].push({ data: dataVal, km, note });
+  saveData(); closeModal(); render();
+}
+
+function delEntry(task, idx) {
+  if (!confirm("Eliminare questa voce?")) return;
+  const sorted = data[task].slice().sort((a,b) => b.data.localeCompare(a.data));
+  const toDelete = sorted[idx];
+  data[task] = data[task].filter(e => e !== toDelete);
+  saveData(); render();
+}
+
+function exportData() {
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type: "application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "manutenzione-auto-backup.json";
+  a.click();
+}
+
+function importData(ev) {
+  const file = ev.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const parsed = JSON.parse(e.target.result);
+      if (confirm("Sovrascrivere i dati attuali con il backup?")) {
+        data = parsed; saveData(); render();
+      }
+    } catch { alert("File non valido"); }
+  };
+  reader.readAsText(file);
+}
+
+render();
+</script>
+</body>
+</html>
