@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="it">
 <head>
@@ -17,6 +16,18 @@
     margin: 0 auto;
   }
   h1 { font-size: 1.3rem; text-align: center; margin-bottom: 14px; color: #1e3a8a; }
+  .car-info {
+    background: #1e3a8a;
+    color: white;
+    border-radius: 12px;
+    padding: 15px;
+    margin-bottom: 15px;
+    cursor: pointer;
+    text-align: center;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+  }
+  .car-info h2 { font-size: 1.1rem; margin-bottom: 4px; }
+  .car-info p { font-size: 0.85rem; opacity: 0.8; }
   .card {
     background: #fff;
     border-radius: 12px;
@@ -69,11 +80,18 @@
   .toolbar { display: flex; gap: 8px; margin-bottom: 12px; }
   .toolbar button { flex: 1; }
   .backup { font-size: 0.72rem; color: #64748b; text-align: center; margin-top: 16px; }
+  .cyl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 5px; }
 </style>
 </head>
 <body>
 
 <h1>🚗 Manutenzione Auto</h1>
+
+<!-- Riquadro Dati Auto -->
+<div class="car-info" onclick="openCarModal()">
+  <h2 id="display-car-name">Tocca per inserire i dati auto</h2>
+  <p id="display-car-year">Marca, Modello e Anno</p>
+</div>
 
 <div class="toolbar">
   <button class="btn secondary" onclick="exportData()">💾 Esporta</button>
@@ -83,6 +101,7 @@
 
 <div id="list"></div>
 
+<!-- Modale Interventi -->
 <div class="modal-bg" id="modal">
   <div class="modal">
     <h2 id="modal-title">Nuovo intervento</h2>
@@ -90,11 +109,44 @@
     <input type="date" id="in-data">
     <label>Km attuali</label>
     <input type="number" id="in-km" placeholder="es. 120000">
-    <label>Note (marca olio, tipo gomme, ecc.)</label>
+    
+    <div id="compression-section" style="display:none;">
+      <label>Numero Cilindri</label>
+      <select id="in-cylinders" onchange="updateCylinderInputs()" style="width:100%; padding:8px; border:1px solid #cbd5e1; border-radius:8px; font-size:0.9rem; margin-top:4px;">
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="4" selected>4</option>
+        <option value="5">5</option>
+        <option value="6">6</option>
+        <option value="8">8</option>
+      </select>
+      <label style="margin-top:10px;">Pressione (bar/psi) per cilindro</label>
+      <div id="cyl-inputs" class="cyl-grid"></div>
+    </div>
+
+    <label>Note aggiuntive (marca olio, tipo gomme, ecc.)</label>
     <textarea id="in-note" rows="2" placeholder="opzionale"></textarea>
+    
     <div class="row">
       <button class="btn secondary" onclick="closeModal()">Annulla</button>
       <button class="btn" onclick="saveEntry()">Salva</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modale Dati Auto -->
+<div class="modal-bg" id="carModal">
+  <div class="modal">
+    <h2>Dati Auto</h2>
+    <label>Marca</label>
+    <input type="text" id="car-brand" placeholder="es. Fiat">
+    <label>Modello</label>
+    <input type="text" id="car-model" placeholder="es. Punto">
+    <label>Anno</label>
+    <input type="number" id="car-year" placeholder="es. 2015">
+    <div class="row">
+      <button class="btn secondary" onclick="closeCarModal()">Annulla</button>
+      <button class="btn" onclick="saveCarInfo()">Salva</button>
     </div>
   </div>
 </div>
@@ -116,10 +168,25 @@ const TASKS = [
 ];
 
 let data = JSON.parse(localStorage.getItem("autoMaint") || "{}");
+let carInfo = JSON.parse(localStorage.getItem("carInfo") || "{}");
 let currentTask = null;
 
 function saveData() { localStorage.setItem("autoMaint", JSON.stringify(data)); }
+function saveCarData() { localStorage.setItem("carInfo", JSON.stringify(carInfo)); }
 function fmtDate(d) { const [y,m,gg] = d.split("-"); return `${gg}/${m}/${y}`; }
+
+function renderCarInfo() {
+  const nameEl = document.getElementById("display-car-name");
+  const yearEl = document.getElementById("display-car-year");
+  
+  if (carInfo.brand || carInfo.model) {
+    nameEl.textContent = `${carInfo.brand || ''} ${carInfo.model || ''}`.trim();
+    yearEl.textContent = carInfo.year ? `Anno: ${carInfo.year}` : "Anno non specificato";
+  } else {
+    nameEl.textContent = "Tocca per inserire i dati auto";
+    yearEl.textContent = "Marca, Modello e Anno";
+  }
+}
 
 function render() {
   const list = document.getElementById("list");
@@ -145,7 +212,11 @@ function render() {
       <div class="history" id="hist-${ti}">
         ${entries.map((e, i) => `
           <div class="entry">
-            <span>${fmtDate(e.data)} · ${e.km} km${e.note ? " · " + e.note : ""}</span>
+            <span>
+              ${fmtDate(e.data)} · ${e.km} km
+              ${e.compression ? `<br><small style="color:#1e3a8a"><b>Compressione:</b> ${e.compression}</small>` : ""}
+              ${e.note ? `<br><small>Note: ${e.note}</small>` : ""}
+            </span>
             <span class="del" onclick="delEntry('${task}', ${i}); event.stopPropagation();">✕</span>
           </div>
         `).join("") || "<div class='entry'>Vuoto</div>"}
@@ -158,12 +229,31 @@ function render() {
   });
 }
 
+function updateCylinderInputs() {
+  const num = parseInt(document.getElementById("in-cylinders").value);
+  const container = document.getElementById("cyl-inputs");
+  container.innerHTML = "";
+  for (let i = 1; i <= num; i++) {
+    container.innerHTML += `<input type="text" id="cyl-${i}" placeholder="Cil. ${i}">`;
+  }
+}
+
 function openModal(task) {
   currentTask = task;
   document.getElementById("modal-title").textContent = task;
   document.getElementById("in-data").value = new Date().toISOString().slice(0,10);
   document.getElementById("in-km").value = "";
   document.getElementById("in-note").value = "";
+  
+  const compSection = document.getElementById("compression-section");
+  if (task === "Verifica compressione") {
+    compSection.style.display = "block";
+    document.getElementById("in-cylinders").value = "4";
+    updateCylinderInputs();
+  } else {
+    compSection.style.display = "none";
+  }
+
   document.getElementById("modal").classList.add("open");
 }
 
@@ -173,9 +263,22 @@ function saveEntry() {
   const dataVal = document.getElementById("in-data").value;
   const km = document.getElementById("in-km").value;
   const note = document.getElementById("in-note").value.trim();
+  
   if (!dataVal || !km) { alert("Inserisci data e km"); return; }
+  
+  let compressionStr = "";
+  if (currentTask === "Verifica compressione") {
+    const num = parseInt(document.getElementById("in-cylinders").value);
+    let parts = [];
+    for (let i = 1; i <= num; i++) {
+      const val = document.getElementById(`cyl-${i}`).value.trim();
+      if (val) parts.push(`Cil.${i}: ${val}`);
+    }
+    compressionStr = parts.join(" | ");
+  }
+
   if (!data[currentTask]) data[currentTask] = [];
-  data[currentTask].push({ data: dataVal, km, note });
+  data[currentTask].push({ data: dataVal, km, note, compression: compressionStr });
   saveData(); closeModal(); render();
 }
 
@@ -187,8 +290,31 @@ function delEntry(task, idx) {
   saveData(); render();
 }
 
+// Funzioni Dati Auto
+function openCarModal() {
+  document.getElementById("car-brand").value = carInfo.brand || "";
+  document.getElementById("car-model").value = carInfo.model || "";
+  document.getElementById("car-year").value = carInfo.year || "";
+  document.getElementById("carModal").classList.add("open");
+}
+
+function closeCarModal() {
+  document.getElementById("carModal").classList.remove("open");
+}
+
+function saveCarInfo() {
+  carInfo.brand = document.getElementById("car-brand").value.trim();
+  carInfo.model = document.getElementById("car-model").value.trim();
+  carInfo.year = document.getElementById("car-year").value.trim();
+  saveCarData();
+  closeCarModal();
+  renderCarInfo();
+}
+
+// Backup
 function exportData() {
-  const blob = new Blob([JSON.stringify(data, null, 2)], {type: "application/json"});
+  const fullBackup = { carInfo: carInfo, maintenanceData: data };
+  const blob = new Blob([JSON.stringify(fullBackup, null, 2)], {type: "application/json"});
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = "manutenzione-auto-backup.json";
@@ -203,13 +329,22 @@ function importData(ev) {
     try {
       const parsed = JSON.parse(e.target.result);
       if (confirm("Sovrascrivere i dati attuali con il backup?")) {
-        data = parsed; saveData(); render();
+        // Retrocompatibilità (se il backup è vecchio e non ha carInfo)
+        if (parsed.carInfo) {
+          carInfo = parsed.carInfo;
+          data = parsed.maintenanceData;
+        } else {
+          data = parsed; 
+        }
+        saveData(); saveCarData(); render(); renderCarInfo();
       }
     } catch { alert("File non valido"); }
   };
   reader.readAsText(file);
 }
 
+// Avvio
+renderCarInfo();
 render();
 </script>
 </body>
